@@ -1,0 +1,83 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.10.0
+          
+      - name: Install dependencies
+        run: pnpm install
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+          
+      - name: Build packages
+        run: |
+          pnpm run build:packages
+        continue-on-error: true
+        
+      - name: Build app
+        run: |
+          cd apps/ui-tars
+          pnpm build
+        continue-on-error: true
+        
+      - name: Package app
+        run: |
+          cd apps/ui-tars
+          npx electron-builder --win --publish=never
+        continue-on-error: true
+        
+      - name: Check dist folder
+        run: |
+          cd apps/ui-tars
+          ls -la dist/ || echo "No dist folder"
+          ls -la release/ || echo "No release folder"
+        shell: bash
+        continue-on-error: true
+        
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-installer
+          path: |
+            apps/ui-tars/dist/**/*
+            apps/ui-tars/release/**/*
+          if-no-files-found: warn
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'push'
+        with:
+          tag_name: v0.0.1-build${{ github.run_number }}
+          name: Windows Build ${{ github.run_number }}
+          body: |
+            UI-TARS Desktop Windows Build
+            
+            ## Download
+            Check the Assets section below for the installer.
+          files: |
+            apps/ui-tars/dist/**/*.exe
+            apps/ui-tars/dist/**/*.msi
+            apps/ui-tars/release/**/*.exe
+            apps/ui-tars/release/**/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
