@@ -1,0 +1,104 @@
+name: Build Windows Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.10.0
+          
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+          
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+            
+      - name: Install dependencies
+        run: pnpm install
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+          
+      - name: Build packages
+        run: |
+          cd packages/ui-tars/shared && pnpm build
+          cd ../action-parser && pnpm build
+          cd ../electron-ipc && pnpm build
+          cd ../operators/adb && pnpm build
+          cd ../nut-js && pnpm build
+          cd ../browserbase && pnpm build
+          cd ../browser-operator && pnpm build
+          cd ../../sdk && pnpm build
+          cd ../cli && pnpm build
+          cd ../utio && pnpm build
+        shell: bash
+        
+      - name: Build Windows app
+        run: |
+          cd apps/ui-tars
+          pnpm build
+        shell: bash
+        
+      - name: Package Windows app
+        run: |
+          cd apps/ui-tars
+          pnpm electron-builder --win
+        shell: bash
+        
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-tars-desktop-windows
+          path: |
+            apps/ui-tars/dist/*.exe
+            apps/ui-tars/dist/*.msi
+            apps/ui-tars/dist/*.zip
+          if-no-files-found: warn
+          
+      - name: Create Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            apps/ui-tars/dist/*.exe
+            apps/ui-tars/dist/*.msi
+            apps/ui-tars/dist/*.zip
+          tag_name: windows-build-${{ github.run_number }}
+          name: Windows Build ${{ github.run_number }}
+          body: |
+            Automated Windows build for UI-TARS Desktop
+            
+            ## Installation
+            1. Download the .exe or .msi file
+            2. Run the installer
+            3. Launch UI-TARS Desktop from Start Menu
+            
+            ## Requirements
+            - Windows 10/11
+            - Node.js 20+ (for development)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
